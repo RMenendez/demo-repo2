@@ -1,0 +1,66 @@
+
+peering.tf (en peering-hub-to-spoke1)
+### HUB VS SPOKE1
+resource "azurerm_virtual_network_peering" "hub-spoke1-peer" {
+  name                         = "hub-spoke1-peer"
+  resource_group_name          = var.hubRgName
+  virtual_network_name         = var.hubVnetName
+  remote_virtual_network_id    = var.spoke1VnetId
+
+  allow_virtual_network_access = true   #Allow remote vnet VMs access local vnet VMs
+  allow_forwarded_traffic      = false  #Allow forwarded traffic from remote VMs (default false)
+  allow_gateway_transit        = false  #This and next control if spoke can use hub gateway 
+  use_remote_gateways          = false  #This and previous control if spoke can use hub gateway
+#  depends_on = [azurerm_virtual_network.spoke1-vnet, azurerm_virtual_networtk.hub-vnet]
+}
+
+
+
+resource "azurerm_virtual_network_peering" "spoke1-hub-peer" {
+  name                         = "spoke1-hub-peer"
+  resource_group_name          = var.spoke1RgName
+  virtual_network_name         = var.spoke1VnetName
+  remote_virtual_network_id    = var.hubVnetId
+
+  allow_virtual_network_access = true   #Allow remote vnet VMs access local vnet VMs
+  allow_forwarded_traffic      = false  #Allow forwarded traffic from remote VMs (default false)
+  allow_gateway_transit        = false
+  use_remote_gateways          = false
+#  depends_on = [azurerm_virtual_network.spoke1-vnet, azurerm_virtual_network.hub-vnet]
+}
+
+
+
+
+
+Variables.tf (peering-hub-to-spoke1)
+### To pass resource group from main
+variable "hubRgName" {
+  description = "Hub resource group"
+  default     = ""
+}
+
+variable "spoke1RgName" {
+  description = "spoke1 resource group"
+  default     = ""
+}
+
+variable "hubVnetId" {
+  description = "Hub vnet id"
+  default     = ""
+}
+
+variable "hubVnetName" {
+  description = "Hub vnet name"
+  default     = ""
+}
+
+variable "spoke1VnetId" {
+  description = "Spoke1 vnet id"
+  default     = ""
+}
+
+variable "spoke1VnetName" {
+  description = "Spoke1 vnet name"
+  default     = ""
+}
