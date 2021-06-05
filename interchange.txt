@@ -1,66 +1,118 @@
 
-peering.tf (en peering-hub-to-spoke1)
-### HUB VS SPOKE1
-resource "azurerm_virtual_network_peering" "hub-spoke1-peer" {
-  name                         = "hub-spoke1-peer"
-  resource_group_name          = var.hubRgName
-  virtual_network_name         = var.hubVnetName
-  remote_virtual_network_id    = var.spoke1VnetId
+##########################################
+#  ROUTE TABLES
+##########################################
 
-  allow_virtual_network_access = true   #Allow remote vnet VMs access local vnet VMs
-  allow_forwarded_traffic      = false  #Allow forwarded traffic from remote VMs (default false)
-  allow_gateway_transit        = false  #This and next control if spoke can use hub gateway 
-  use_remote_gateways          = false  #This and previous control if spoke can use hub gateway
-#  depends_on = [azurerm_virtual_network.spoke1-vnet, azurerm_virtual_networtk.hub-vnet]
+#######################################################################################
+# CASE B
+# mgmt subnet in each spoke has route only to mgmt subnet in other spoke
+# So workload subnets are "nonroutable" from the other spoke (but reachable from hub) 
+#######################################################################################
+
+## RT for spoke1 and association to spoke1 mgmt subnet
+## Includes route to spoke2 mgmt subnet through nva (vm in hub)
+resource "azurerm_route_table" "spoke1-mgmt-rt" {
+  name                          = "spoke1-mgmt-rt"
+  location                      = "North Europe"
+  resource_group_name           = azurerm_resource_group.spoke1-rg.name
+  disable_bgp_route_propagation = false
+
+  route {
+    name                   = "toSpoke2mgmt"
+    address_prefix         = "10.2.0.0/24"
+    next_hop_type          = "VirtualAppliance"
+    next_hop_in_ip_address = "10.0.1.44"
+  }
+}
+
+resource "azurerm_subnet_route_table_association" "spoke1-mgmt-rt-to-spoke1-mgmt-subnet" {
+  subnet_id      = module.spoke1.spoke1SubnetMgmtId
+  route_table_id = azurerm_route_table.spoke1-mgmt-rt.id
+#  depends_on = [azurerm_subnet.spoke1-mgmt]
 }
 
 
 
-resource "azurerm_virtual_network_peering" "spoke1-hub-peer" {
-  name                         = "spoke1-hub-peer"
-  resource_group_name          = var.spoke1RgName
-  virtual_network_name         = var.spoke1VnetName
-  remote_virtual_network_id    = var.hubVnetId
+### RT for spoke2 and association to spoke2 mgmt subnet
+### Includes route to to spoke1 through nva (vm in hub)
+resource "azurerm_route_table" "spoke2-mgmt-rt" {
+  name                          = "spoke2-mgmt-rt"
+  location                      = "North Europe"
+  resource_group_name           = azurerm_resource_group.spoke2-rg.name
+  disable_bgp_route_propagation = false
 
-  allow_virtual_network_access = true   #Allow remote vnet VMs access local vnet VMs
-  allow_forwarded_traffic      = false  #Allow forwarded traffic from remote VMs (default false)
-  allow_gateway_transit        = false
-  use_remote_gateways          = false
-#  depends_on = [azurerm_virtual_network.spoke1-vnet, azurerm_virtual_network.hub-vnet]
+  route {
+    name                   = "toSpoke1mgmt"
+    address_prefix         = "10.1.0.0/24"
+    next_hop_type          = "VirtualAppliance"
+    next_hop_in_ip_address = "10.0.1.44"
+  }
+}
+
+resource "azurerm_subnet_route_table_association" "spoke2-mgmt-rt-to-spoke2-mgmt-subnet" {
+  subnet_id      = module.spoke2.spoke2SubnetMgmtId
+  route_table_id = azurerm_route_table.spoke2-mgmt-rt.id
+#  depends_on = [azurerm_subnet.spoke2-mgmt]
+}
+#######################################################################################
+# CASE B - END
+#######################################################################################
+
+
+/*
+#######################################################################################
+# CASE A
+# mgmt subnets in spoke1 and spoke2 have route to the whole other spoke address range
+# So VMs in mgmt subnet have bidirectional route to the other VMs (and can ping each other)
+#######################################################################################
+
+### RT for spoke1 and association to spoke1 mgmt subnet
+### Includes route to spoke2 through nva (vm in hub)
+resource "azurerm_route_table" "spoke1-mgmt-rt" {
+  name                          = "spoke1-mgmt-rt"
+  location                      = "North Europe"
+  resource_group_name           = azurerm_resource_group.spoke1-rg.name
+  disable_bgp_route_propagation = false
+
+  route {
+    name                   = "toSpoke2"
+    address_prefix         = "10.2.0.0/16"
+    next_hop_type          = "VirtualAppliance"
+    next_hop_in_ip_address = "10.0.1.44"
+  }
+}
+
+resource "azurerm_subnet_route_table_association" "spoke1-mgmt-rt-to-spoke1-mgmt-subnet" {
+  subnet_id      = module.spoke1.spoke1SubnetMgmgId
+  route_table_id = azurerm_route_table.spoke1-mgmt-rt.id
+#  depends_on = [azurerm_subnet.spoke1-mgmt]
 }
 
 
 
+### RT for spoke2 and association to spoke2 mgmt subnet
+### Includes route to to spoke1 through nva (vm in hub)
+resource "azurerm_route_table" "spoke2-mgmt-rt" {
+  name                          = "spoke2-mgmt-rt"
+  location                      = "North Europe"
+  resource_group_name           = azurerm_resource_group.spoke2-rg.name
+  disable_bgp_route_propagation = false
 
-
-Variables.tf (peering-hub-to-spoke1)
-### To pass resource group from main
-variable "hubRgName" {
-  description = "Hub resource group"
-  default     = ""
+  route {
+    name                   = "toSpoke1"
+    address_prefix         = "10.1.0.0/16"
+    next_hop_type          = "VirtualAppliance"
+    next_hop_in_ip_address = "10.0.1.44"
+  }
 }
 
-variable "spoke1RgName" {
-  description = "spoke1 resource group"
-  default     = ""
+resource "azurerm_subnet_route_table_association" "spoke2-mgmt-rt-to-spoke2-mgmt-subnet" {
+  subnet_id      = module.spoke2.spoke2SubnetMgmtId
+  route_table_id = azurerm_route_table.spoke2-mgmt-rt.id
+#  depends_on = [azurerm_subnet.spoke2-mgmt]
 }
 
-variable "hubVnetId" {
-  description = "Hub vnet id"
-  default     = ""
-}
+#######################################################################################
+# CASE A - END
+#######################################################################################
 
-variable "hubVnetName" {
-  description = "Hub vnet name"
-  default     = ""
-}
-
-variable "spoke1VnetId" {
-  description = "Spoke1 vnet id"
-  default     = ""
-}
-
-variable "spoke1VnetName" {
-  description = "Spoke1 vnet name"
-  default     = ""
-}
