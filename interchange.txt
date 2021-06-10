@@ -156,3 +156,377 @@ resource "azurerm_virtual_machine" "hub-vm" {
 
 
 
+
+
+######################################################################
+# vpc1  10.126.0.0/22  + 180.44.0.0/22
+resource "aws_vpc" "rmg_vpc1" {
+  cidr_block = "10.126.0.0/22"
+  enable_dns_support = "true"
+  enable_dns_hostnames = "true"
+  tags = {
+    Name = "rmg_vpc1"
+  }
+}
+
+resource "aws_vpc_ipv4_cidr_block_association" "secondary_cidr1" {
+  vpc_id     = aws_vpc.rmg_vpc1.id
+  cidr_block = "180.44.0.0/22"
+}
+##################################
+# Subnets for VPC1
+resource "aws_subnet" "public11" {
+  vpc_id            = aws_vpc_ipv4_cidr_block_association.secondary_cidr1.vpc_id
+  cidr_block        = "180.44.0.0/25"
+  availability_zone = "eu-west-1a"
+  tags = {
+    Name = "public11"
+  }
+}
+
+resource "aws_subnet" "private11" {
+  vpc_id            = aws_vpc.rmg_vpc1.id
+  cidr_block        = "10.126.1.0/24"
+  availability_zone = "eu-west-1a"
+  tags = {
+    Name = "private11"
+  }
+}
+
+resource "aws_subnet" "nateable11" {
+  vpc_id            = aws_vpc_ipv4_cidr_block_association.secondary_cidr1.vpc_id
+  cidr_block        = "180.44.0.128/25"
+  availability_zone = "eu-west-1a"
+  tags = {
+    Name = "nateable11"
+  }
+}
+
+resource "aws_subnet" "routable11" {
+  vpc_id            = aws_vpc_ipv4_cidr_block_association.secondary_cidr1.vpc_id
+  cidr_block        = "180.44.1.0/24"
+  availability_zone = "eu-west-1a"
+  tags = {
+    Name = "routable11"
+  }
+}
+
+resource "aws_subnet" "routable12" {
+  vpc_id            = aws_vpc_ipv4_cidr_block_association.secondary_cidr1.vpc_id
+  cidr_block        = "180.44.2.0/24"
+  availability_zone = "eu-west-1b"
+  tags = {
+    Name = "routable12"
+  }
+}
+
+
+##################################
+# igw1
+resource "aws_internet_gateway" "iw1" {
+  vpc_id = aws_vpc.rmg_vpc1.id
+  tags = {
+    Name = "iw1"
+  }
+}
+
+##################################
+# Route tables for subnets
+# For public1 (to IGW1
+resource "aws_route_table" "public1_rt" {
+  vpc_id = aws_vpc.rmg_vpc1.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.iw1.id
+  }
+  tags = {
+    Name = "public1_rt"
+  }
+}
+
+# Asocia route table a subnet
+resource "aws_route_table_association" "rmg_vpc1_public11_route_assoc" {
+  subnet_id      = aws_subnet.public11.id
+  route_table_id = aws_route_table.public1_rt.id
+}
+
+#resource "aws_route_table_association" "rmg_vpc1_public12_route_assoc" {
+#  subnet_id      = aws_subnet.public12.id
+#  route_table_id = aws_route_table.public1_rt.id
+#}
+
+#666# Route table para subnets routable11 y routable12 -> default a TGW
+#666resource "aws_route_table" "routable11_rt" {
+#666  vpc_id = aws_vpc.rmg_vpc1.id
+#666  route {
+#666    cidr_block = "0.0.0.0/0"
+#666    transit_gateway_id = var.tgw1_id
+#666  }
+#666
+#666
+#666### 24/7/2020 quito esta ruta. Da error ya que la instance_id tiene 2 interfaces
+#666###  y habría que especificar por cuàl, lo que no se hacer todavía
+#666### incluiré la ruta a mano por el portal
+#666/*
+#666  route {
+#666    cidr_block = "10.10.10.0/24"
+#666    # Instancia routable11 (en su eth0 primario)
+#666    instance_id = module.vpc1_routable11.ec2_server_id
+#666  }
+#666*/
+#666
+#666  tags = {
+#666    Name = "routable11_rt"
+#666  }
+#666}
+
+
+#777# Asocia route table a subnets routables
+#777resource "aws_route_table_association" "rmg_vpc1_routable11_route_assoc" {
+#777  subnet_id      = aws_subnet.routable11.id
+#777  route_table_id = aws_route_table.routable11_rt.id
+#777}
+#777
+#777
+#777# Route table para subnets routable11 y routable12 -> default a TGW
+#777resource "aws_route_table" "routable12_rt" {
+#777  vpc_id = aws_vpc.rmg_vpc1.id
+#777  route {
+#777    cidr_block = "0.0.0.0/0"
+#777    transit_gateway_id = var.tgw1_id
+#777  }
+#777  tags = {
+#777    Name = "routable12_rt"
+#777  }
+#777}
+#777
+#777resource "aws_route_table_association" "rmg_vpc1_routable12_route_assoc" {
+#777  subnet_id      = aws_subnet.routable12.id
+#777  route_table_id = aws_route_table.routable12_rt.id
+#777}
+
+#################################
+# Route table para pruebas de NAT
+# Incluye rutas a on-prem (180.16.0.0/24) o bien una default (0.0.0.0/0)
+#  indicando como next hop el interface privado de la instancia nat
+#  podría haber una por az para dividir el trafico
+#  además podría ser una forma de "backup", cambiar ruta a instancia activa
+#
+/*
+resource "aws_route_table" "private11_rt" {
+  vpc_id = aws_vpc.rmg_vpc1.id
+  route {
+    cidr_block = "180.16.0.0/24"
+    instance_id = module.vpc1_private11.ec2_server_id
+  }
+  tags = {
+    Name = "private11_rt"
+  }
+}
+
+# Asocia route table a subnet
+resource "aws_route_table_association" "rmg_vpc1_private11_route_assoc" {
+  subnet_id      = aws_subnet.private12.id
+  route_table_id = aws_route_table.private11_rt.id
+}
+*/
+
+##############################
+# Security Groups
+# Security group para permitir ssh, icmp y http
+resource "aws_security_group" "allow_comm1" {
+  name = "allow_comm1"
+  tags = {
+    Name = "allow_comm1"
+  }
+  vpc_id = aws_vpc.rmg_vpc1.id
+
+  ingress {
+    from_port = 22
+    to_port = 22
+    protocol = "tcp"
+    cidr_blocks = [
+      "0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port = -1
+    to_port = -1
+    protocol = "icmp"
+    cidr_blocks = [
+      "0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port = 80
+    to_port = 80
+    protocol = "tcp"
+    cidr_blocks = [
+      "0.0.0.0/0"]
+  }
+
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = [
+      "0.0.0.0/0"]
+  }
+}
+
+# SG para acceso https 443 en inbound (test de Interface endpoint)
+resource "aws_security_group" "allow_https443" {
+  name = "allow_https443"
+  tags = {
+    Name = "allow_https443"
+  }
+  vpc_id = aws_vpc.rmg_vpc1.id
+
+  ingress {
+    from_port = 443
+    to_port = 443
+    protocol = "tcp"
+    cidr_blocks = [
+      "10.1.0.0/22"]
+  }
+
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = [
+      "0.0.0.0/0"]
+  }
+}
+
+# VPC1 instances
+
+
+module "vpc1_public11" {
+  source             = "../instanceaws"
+  aws_subnet_id = aws_subnet.public11.id
+  aws_vpc_security_group_ids = [ aws_security_group.allow_comm1.id ]
+  aws_tagname = "public11"
+  aws_associate_public_ip_address = "true"
+  aws_source_dest_check = true
+  user_data = ""
+}
+
+
+
+# Private11 versión aws free tier...
+module "vpc1_private11" {
+  source             = "../instanceaws"
+  aws_subnet_id = aws_subnet.private11.id
+  aws_vpc_security_group_ids = [ aws_security_group.allow_comm1.id ]
+  aws_tagname = "private11"
+  aws_associate_public_ip_address = "false"
+  aws_source_dest_check = false
+  user_data = ""
+}
+
+
+
+#888# Routable11 - INSTANCIA NAT
+#888module "vpc1_routable11" {
+#888  source             = "../instanceubuntu"
+#888  ubuntu_subnet_id = aws_subnet.routable11.id
+#888  ubuntu_vpc_security_group_ids = [ aws_security_group.allow_comm1.id ]
+#888  ubuntu_tagname = "routable11"
+#888  ubuntu_associate_public_ip_address = "false"
+#888  ubuntu_private_ip = "180.44.1.11"
+#888  ubuntu_source_dest_check = false
+#888#  user_data = ""
+#888  user_data = file("./vpc1/start_commands_rout11_a.sh")
+#888}
+
+#888#  Elastic network th - ENI to attach to an instance as eht1
+#888resource "aws_network_interface" "eni_nateable11" {
+#888  subnet_id       = aws_subnet.nateable11.id
+#888  private_ips     = ["180.44.0.155"]
+#888  security_groups = [ aws_security_group.allow_comm1.id ]
+#888  source_dest_check = false
+#888
+#888  attachment {
+#888    instance     = module.vpc1_routable11.ec2_server_id
+#888    device_index = 1
+#888  }
+#888}
+
+
+#
+#
+/*
+module "vpc1_private12" {
+  source             = "../instanceubuntu"
+  ubuntu_subnet_id = aws_subnet.private12.id
+  ubuntu_vpc_security_group_ids = [ aws_security_group.allow_comm1.id ]
+  ubuntu_tagname = "private12"
+  ubuntu_associate_public_ip_address = "false"
+  ubuntu_private_ip = "10.126.2.12"
+  ubuntu_source_dest_check = true
+  user_data = ""
+#  user_data = file("./vpc2/start_python3_http_priv21.sh")
+}
+*/
+
+
+module "vpc1_routable12" {
+  source             = "../instanceubuntu"
+  ubuntu_subnet_id = aws_subnet.routable12.id
+  ubuntu_vpc_security_group_ids = [ aws_security_group.allow_comm1.id ]
+  ubuntu_tagname = "routable12"
+  ubuntu_associate_public_ip_address = "false"
+  ubuntu_private_ip = "180.44.2.12"
+  ubuntu_source_dest_check = false
+  user_data = ""
+#  user_data = file("./vpc2/start_python3_http_priv21.sh")
+}
+
+
+
+
+# Llamada modulo de vpcendpoint
+#
+/*
+module "vpc1_interf_endpoint1" {
+  source           = "../vpcendpoint"
+  vpc_id           = aws_vpc.rmg_vpc1.id
+  ptfe_service     = var.servicio_en_vpc3_name
+  ptfe_secgroup    = aws_security_group.allow_comm1.id
+  ptfe_subnet_ids  = [aws_subnet.routable11.id, aws_subnet.routable12.id]
+}
+*/
+
+
+# Network Load Balancer for VPC1
+# Attached to subnets routable11 y routable12
+# Target is type ip from another vpc
+# Health check must be disabled as target IP really does not exist
+
+
+#AAAmodule "nlbvpc1" {
+#AAA  source             = "../modulenlb"
+#AAA  name               = "nlbvpc1"
+#AAA  load_balancer_type = "network"
+#AAA  internal           = true
+#AAA  subnets            = [aws_subnet.routable11.id,aws_subnet.routable12.id]
+#AAA  vpc_id             = aws_vpc.rmg_vpc1.id
+#AAA  # Target type should be ip (10.10.10.1 to be routed to NAT and DNATed)
+#AAA  # Target must be ip (of vpc or a RFC ...)
+#AAA  target_type        = "ip"
+#AAA  target1            = "10.10.10.1"
+#AAA  #
+#AAA}
+#AAA
+#AAA
+#AAA# VPC endpoint service
+#AAA# Para exponer un servicio (asociado a un Network Load Balancer)
+#AAA# Al habilitarlo, habilitar el "output" correspondiente al nombre del servicio
+#AAAresource "aws_vpc_endpoint_service" "servicio_en_vpc1" {
+#AAA  acceptance_required        = false
+#AAA  network_load_balancer_arns = [module.nlbvpc1.nlb_arn]
+#AAA}
+#AAA
+
+
