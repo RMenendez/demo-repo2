@@ -530,3 +530,227 @@ module "vpc1_interf_endpoint1" {
 #AAA
 
 
+
+
+
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+<<< 8/6/2021 Install and config a BIND DNS in Azure ubuntu
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+Para ubuntu 20.04 (Consenso de varias web)
+
+sudo apt update
+sudo apt install bind9 bind9utils bind9-doc dnsutils bind9-host
+
+check version:
+named -v
+
+By default, BIND automatically starts after installation.You check its status with:
+
+systemctl status bind9
+
+If it’s not running, then start it with:
+
+sudo systemctl start bind9
+
+And enable auto start at boot time:
+
+sudo systemctl enable bind9
+
+The BIND server will run as the bind user, which is created during installation, and listens on TCP and UDP port 53, as can be seen by running the following command:
+
+sudo netstat -lnptu | grep named
+
+The BIND daemon is called named. (A daemon is a piece of software that runs in the background.) The named binary is installed by the bind9 package and there’s another important binary: rndc, the remote name daemon controller, which is installed by the bind9utils package. The rndc binary is used to reload/stop and control other aspects of the BIND daemon. Communication is done over TCP port 953.
+
+For example, we can check the status of the BIND name server.
+
+sudo rndc status
+
+
+
+
+Configurations for a Local DNS Resolver
+
+/etc/bind/ is the directory that contains configurations for BIND.
+
+    named.conf: the primary config file which includes configs of three other files.
+    db.127: localhost IPv4 reverse mapping zone file.
+    db.local: localhost forward IPv4 and IPv6 mapping zone file.
+    db.empty: an empty zone file
+
+The main BIND configuration file /etc/bind/named.conf sources the settings from 3 other files.
+
+    /etc/bind/named.conf.options
+    /etc/bind/named.conf.local
+    /etc/bind/named.conf.default-zones
+
+To enable recursion service, edit the first file.
+
+sudo nano /etc/bind/named.conf.options
+
+In the options clause, add the following lines. Replace IP addresses in the allow-recursion statement with your own local network addresses.
+
+ // hide version number from clients for security reasons.
+ version "not currently available";
+
+ // optional - BIND default behavior is recursion
+ recursion yes;
+
+ // provide recursion service to trusted clients only
+ allow-recursion { 127.0.0.1; 192.168.0.0/24; 10.10.10.0/24; };
+
+ // enable the query log
+ querylog yes;
+
+
+
+
+Configuración:
+All configuration files located in /etc/bind/
+The main configuration file is named.conf.options, let's open it
+
+sudo nano /etc/bind/named.conf.options.
+
+Some "directives" for this "options" file:
+
+To specify which networks the server will serve (accept queries?). If specify "any" accepts all.
+listen-on {10.10.10.0/24;10.1.0.0/16;...};
+
+¿¿ What is this allow-query
+allow-query { any; };
+
+Forwareders -> contain the IP addresses of DNS servers to which the request is redirected if our server does not contain the required data.
+forwarders {8.8.8.8;8.8.4.4;};
+
+8/6/2021 Example to modify and seems to be working
+options {
+ directory "/var/cache/bind";
+ dnssec-validation auto;
+ auth-nxdomain no;    # conform to RFC1035
+ // listen-on-v6 { any; };
+ listen-on port 53 { localhost; any; };
+ allow-query { localhost; any; };
+ forwarders { 8.8.8.8; };
+ recursion yes;
+ querylog yes;
+};
+
+
+To check the configuration
+sudo named-checkconf
+
+To reload the server so the new config takes place
+sudo systemctl restart bind9
+
+Check status with
+sudo systemctl status bind9
+
+
+Next Important Configuration file is “/etc/bind/named.conf.local“, in this file we will define the zone files for our domain, edit the file add the following entries:
+
+sudo vi named.conf.local
+zone    "linuxtechi.corp"   {
+        type master;
+        file    "/etc/bind/forward.linuxtechi.corp";
+ };
+
+zone   "0.0.10.in-addr.arpa"        {
+       type master;
+       file    "/etc/bind/reverse.linuxtechi.corp";
+ };
+
+
+
+
+AND NOW THE ZONE FILES ABOVE REFERENCED
+
+
+sudo vi forward.linuxtechi.corp
+$TTL    604800
+
+@       IN      SOA     primary.linuxtechi.corp. root.primary.linuxtechi.corp. (
+                              6         ; Serial
+                         604820         ; Refresh
+                          86600         ; Retry
+                        2419600         ; Expire
+                         604600 )       ; Negative Cache TTL
+
+;Name Server Information
+@       IN      NS      primary.linuxtechi.corp.
+
+;IP address of Your Domain Name Server(DNS)
+primary IN       A      10.0.1.44
+
+;Mail Server MX (Mail exchanger) Record
+linuxtechi.corp. IN  MX  10  mail.linuxtechi.corp.
+
+;A Record for Host names
+www     IN       A       10.0.1.50
+mail    IN       A       10.0.1.60
+
+;CNAME Record
+ftp     IN      CNAME    www.linuxtechi.corp.
+
+
+
+
+
+AND THE REVERSE FILE
+
+sudo vi /etc/bind/reverse.linuxtechi.corp
+$TTL    604800
+@       IN      SOA     linuxtechi.corp. root.linuxtechi.corp. (
+                             21         ; Serial
+                         604820         ; Refresh
+                          864500        ; Retry
+                        2419270         ; Expire
+                         604880 )       ; Negative Cache TTL
+
+;Your Name Server Info
+@       IN      NS      primary.linuxtechi.corp.
+primary IN      A       10.0.1.44
+
+;Reverse Lookup for Your DNS Server
+44      IN      PTR     primary.linuxtechi.corp.
+
+;PTR Record IP address to HostName
+50      IN      PTR     www.linuxtechi.corp.
+60      IN      PTR     mail.linuxtechi.corp.
+
+
+THEN:
+
+sudo systemctl restart bind9
+sudo systemctl enlable bind9
+
+In case the linux FW is running in the BIND server, use following comand to allow port 53
+
+sudo ufw allow 53
+
+
+Validating Syntax of bind9 configuration and Zone files
+
+sudo named-checkconf /etc/bind/named.conf.local
+
+sudo named-checkzone linuxtechi.local /etc/bind/forward.linuxtechi.local
+
+sudo named-checkzone linuxtechi.local /etc/bind/reverse.linuxtechi.local
+
+
+Testing the DNS server with dig & nslookup
+To test out our BIND 9 DNS server, we will use another Ubuntu machine 
+& will change its DNS to point out our DNS server. To change the DNS
+ server, open ‘/etc/resol.conf‘ & make the following DNS entry,
+
+sudo vi /etc/resolv.conf
+search linuxtechi.corp
+nameserver 192.168.0.40
+
+dig primary.linuxtechi.local
+
+dig -x 192.168.0.40
+
+9/6/2021 OK, working up to here, in ubuntu 16.04 in Azure hub-spoke
+
